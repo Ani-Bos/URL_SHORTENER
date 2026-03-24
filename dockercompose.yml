@@ -1,0 +1,49 @@
+version: '3.8'
+services:
+  go-app:
+    build: .
+    ports:
+      - "8080:8080" 
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: go_db
+      REDIS_PASSWORD: yourredispassword
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - app-network
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: go_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data 
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server --requirepass yourredispassword 
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  app-network:
+    driver: bridge

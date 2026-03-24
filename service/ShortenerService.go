@@ -1,15 +1,21 @@
 package service
+
 import (
-	"url_shortener/logger"
 	"net/url"
+	"strconv"
+	"url_shortener/logger"
 	"url_shortener/model"
-	"url_shortener/utilities"
 	"url_shortener/repository"
+	"url_shortener/utilities"
+	"github.com/bits-and-blooms/bloom/v3"
+	"github.com/redis/go-redis/v9"
 )
 
 type ShortenerService struct{
  Repo repository.URL_shortener
  L *logger.Logger
+ filter *bloom.BloomFilter
+ r *redis
 }
 
 func (srvc *ShortenerService)CreateShortUrl(shortner *model.Shortener_Model){
@@ -51,3 +57,37 @@ func (srvc *ShortenerService)GetUrl(short_url string)(string,error){
 	}
 	return shrtn_mdl.Actual_url,nil
 }
+
+func (srvc *ShortenerService)GeneratehexShorturl(shrtnrmdl *model.Shortener_Model){
+	//validate long url
+	if !validate_long_url(shrtnrmdl.Actual_url){
+		srvc.L.LogFatalMessage("Failed to validate actual long url")
+		return
+	}
+	//;genrate 6 digit md5 hash 
+	//if found during bloom filtert check do a retry with predefie string
+	//retry logic of hash
+    var hashr string
+    var err error
+	retryinpt:=shrtnrmdl.Actual_url
+	for i:=0;;i++{
+       if i>0{
+           retryinpt=shrtnrmdl.Actual_url+strconv.Itoa(i)
+	   }
+	   hashr,err:=utilities.ConvertMD5hash(retryinpt)
+	   if err!=nil{
+		 return
+	   }
+	   //check in bloom filter if not add it
+	   if !srvc.filter.Test([]byte(hashr)){
+		  break
+	   }
+	   //false positive in bloom filter check redis
+	   if !srvc.r.Get(hashr)
+	   //if redis also not found
+	   //check in db to confirm
+	}
+	///save in db
+	//save in redis and bloom filter
+}
+
