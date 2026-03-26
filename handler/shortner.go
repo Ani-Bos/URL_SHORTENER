@@ -22,7 +22,7 @@ func (s *ShortenerHandler) GenerateShortURL(rw http.ResponseWriter, req *http.Re
 		s.L.LogFatalMessage("Failed to parse request body")
 		http.Error(rw, "failed to parse request body", http.StatusInternalServerError)
 	}
-	s.S.CreateShortUrl(&shortener_model)
+	s.S.GeneratehexShorturl(&shortener_model)
 	json.NewEncoder(rw).Encode(&shortener_model)
 }
 

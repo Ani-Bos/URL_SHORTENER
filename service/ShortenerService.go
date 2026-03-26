@@ -1,12 +1,15 @@
 package service
 
 import (
+	"context"
 	"net/url"
 	"strconv"
+	"time"
 	"url_shortener/logger"
 	"url_shortener/model"
 	"url_shortener/repository"
 	"url_shortener/utilities"
+
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/redis/go-redis/v9"
 )
@@ -14,8 +17,8 @@ import (
 type ShortenerService struct{
  Repo repository.URL_shortener
  L *logger.Logger
- filter *bloom.BloomFilter
- r *redis
+ Filter *bloom.BloomFilter
+ Rdb *redis.Client
 }
 
 func (srvc *ShortenerService)CreateShortUrl(shortner *model.Shortener_Model){
@@ -49,13 +52,15 @@ func validate_long_url(actual_url string)bool{
 
 func (srvc *ShortenerService)GetUrl(short_url string)(string,error){
 	srvc.L.LogMessage("Entering into fetching long url from short url")
-	short_url_id:=utilities.DecodeBase62(short_url)
-	shrtn_mdl,err:=srvc.Repo.Get_code(uint(short_url_id))
-	if err!=nil{
-		srvc.L.LogFatalMessage("Failed to retrieve actual url from short url")
+	vl, err := srvc.Rdb.Get(context.Background(), short_url).Result()
+	if err == nil {
+		return vl, nil
+	}
+	shrtn_mdl, err := srvc.Repo.FindByShortUrlToActualUrl(short_url)
+	if err != nil {
 		return "", err
 	}
-	return shrtn_mdl.Actual_url,nil
+	return shrtn_mdl.Actual_url, nil
 }
 
 func (srvc *ShortenerService)GeneratehexShorturl(shrtnrmdl *model.Shortener_Model){
@@ -74,20 +79,40 @@ func (srvc *ShortenerService)GeneratehexShorturl(shrtnrmdl *model.Shortener_Mode
        if i>0{
            retryinpt=shrtnrmdl.Actual_url+strconv.Itoa(i)
 	   }
-	   hashr,err:=utilities.ConvertMD5hash(retryinpt)
+	   hashr,err=utilities.ConvertMD5hash(retryinpt)
 	   if err!=nil{
 		 return
 	   }
 	   //check in bloom filter if not add it
-	   if !srvc.filter.Test([]byte(hashr)){
+	   if !srvc.Filter.Test([]byte(hashr)){
 		  break
 	   }
 	   //false positive in bloom filter check redis
-	   if !srvc.r.Get(hashr)
+	   _,err:=srvc.Rdb.Get(context.Background(),hashr).Result()
+	   if err!=redis.Nil{
+             break
+	   }
 	   //if redis also not found
 	   //check in db to confirm
+	   exist,err:=srvc.Repo.FindByShortUrl(hashr)
+	   if err!=nil{
+		return
+	   }
+	   if !exist{
+		break;
+	   }
+
 	}
 	///save in db
+	srvc.Filter.AddString(hashr)
+
+	shrtnrmdl.Short_url =  "http://localhost:8080/get_url/"+hashr
+    err=srvc.Repo.Create_code(shrtnrmdl)
+	if err!=nil{
+		srvc.L.LogFatalMessage("Failed to insert to database")
+		return
+	}
 	//save in redis and bloom filter
+	srvc.Rdb.Set(context.Background(), hashr, shrtnrmdl.Actual_url, 24*time.Hour)
 }
 
